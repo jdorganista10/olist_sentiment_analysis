@@ -4,6 +4,7 @@ dcc.Graph components to ensure graphs get sized correctly. We also show how
 dcc.Store can be used to cache the results of an expensive graph generation
 process so that switching tabs is fast.
 """
+import pickle
 
 import time
 
@@ -18,7 +19,8 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objs as go
 
-from lib.functions import reviews_by_score, reviews_by_date, get_noise_words, get_common_words, main_ngrams
+from lib.functions_dash import reviews_by_score, reviews_by_date, get_noise_words, get_common_words, main_ngrams
+from lib.functions_model import get_main_words, main_words
 
 ###==============================================CODIGO===========================================================
 df = pd.read_csv('Data/brazilian-ecommerce/olist_order_reviews_dataset.csv')
@@ -41,17 +43,26 @@ line_reviews_by_date = reviews_by_date(df)
 
 #----Fraficas panel 3
 noise_words = get_noise_words(df_or)
-print(noise_words)
+print('-------------------')
 df_3grama_good = get_common_words(df_or, noise_words, 1)
 df_3grama_bad = get_common_words(df_or, noise_words, 0)
 
 bar_3gram_good = main_ngrams(df_3grama_good)
 bar_3gram_bad = main_ngrams(df_3grama_bad, 0)
 
+##PAGINA 2
+#---Modelos
+loaded_model = pickle.load(open('models/linear_model.sav', 'rb'))
+vectorizer = pickle.load(open('models/vectorizer.sav', 'rb'))
+
+df_main_words = get_main_words(vectorizer,loaded_model)
+bar_words_good=main_words(df_main_words)
+bar_words_bad=main_words(df_main_words, sentiment = 0)
+
 
 ###============================================APLICACION=========================================================
 
-app = dash.Dash(external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 app.layout = dbc.Container(
     [
@@ -67,14 +78,14 @@ app.layout = dbc.Container(
 #         ),
         dbc.Tabs(
             [
-                dbc.Tab(label="Página 1", tab_id="page-1"),
-                dbc.Tab(label="Página 2", tab_id="page-2"),
+                dbc.Tab(label="Análisis de sentimiento", tab_id="page-1"),
+                dbc.Tab(label="Modelo ML", tab_id="page-2"),
             ],
             id="tabs",
             active_tab="page-1",
         ),
         html.Div(id="tab-content", className="p-4"),
-    ]
+    ],
 )
 
 
@@ -99,12 +110,17 @@ def render_tab_content(active_tab):
                                     [
                                         dbc.Col(
                                             dbc.Card(
-                                                dbc.CardBody('{:,}'.format(num_reviews))
+                                                dbc.CardBody([
+                                                    html.H4('{:,}'.format(num_reviews)),
+                                                    html.P("No. Revisiones"),
+                                                ])
                                             )
                                         ),
                                         dbc.Col(
                                             dbc.Card(
-                                                dbc.CardBody('{:,}'.format(num_com_reviews))
+                                                dbc.CardBody([
+                                                    html.H4('{:,}'.format(num_com_reviews)),
+                                                    html.P("No. Comentarios")]),
                                             )
                                         ),
                                     ]
@@ -115,9 +131,12 @@ def render_tab_content(active_tab):
                         dbc.Col(
                             html.Div(
                                 dbc.Row([
-                                    dbc.Col(dbc.Card(dbc.CardBody('{:.2f}%'.format(perc_pos*100)))),
-                                    dbc.Col(dbc.Card(dbc.CardBody('{:.2f}%'.format(perc_neu*100)))),
-                                    dbc.Col(dbc.Card(dbc.CardBody('{:.2f}%'.format(perc_neq*100)))),
+                                    dbc.Col(dbc.Card(dbc.CardBody([html.H4('{:.2f}%'.format(perc_pos*100)),
+                                                                  html.P("Positivos")]))),
+                                    dbc.Col(dbc.Card(dbc.CardBody([html.H4('{:.2f}%'.format(perc_neu*100)),
+                                                                  html.P("Neutros")]))),
+                                    dbc.Col(dbc.Card(dbc.CardBody([html.H4('{:.2f}%'.format(perc_neq*100)),
+                                                                  html.P("Negativos")]))),
                                 ])
                             ),
                             width=6
@@ -131,8 +150,7 @@ def render_tab_content(active_tab):
                         dbc.Col(
                             html.Div(
                                 [
-                                    html.H3("Gráfica 1"),
-                                    #html.Img(src='https://picsum.photos/230', style={'height':'100%', 'width':'100%'}),
+                                    html.H3("Revisiones por puntaje"),
                                     dcc.Graph(figure = bar_reviews_by_score, id = 'bar_rev_sco')
                                 ]
                             ),
@@ -141,7 +159,7 @@ def render_tab_content(active_tab):
                         dbc.Col(
                             html.Div(
                                 [
-                                    html.H3("Gráfica 2"),
+                                    html.H3("Revisiones por mes"),
                                     dcc.Graph(figure = line_reviews_by_date, id = 'lin_rev_dat')
                                 ]
                             ),
@@ -154,7 +172,7 @@ def render_tab_content(active_tab):
                         dbc.Col(
                             html.Div(
                                 [
-                                    html.H3("Gráfica 3"),
+                                    html.H3("Trigramas comentarios positivos"),
                                     dcc.Graph(figure = bar_3gram_good, id = 'bar_good_ngr')
                                 ]
                             ),
@@ -163,7 +181,7 @@ def render_tab_content(active_tab):
                         dbc.Col(
                             html.Div(
                                 [
-                                    html.H3("Gráfica 4"),
+                                    html.H3("Trigramas comentarios negativos"),
                                     dcc.Graph(figure = bar_3gram_bad, id = 'bar_bad_ngr')
                                 ]
                             ),
@@ -214,11 +232,11 @@ def render_tab_content(active_tab):
                         dbc.Col(
                             html.Div(
                                 [
-                                    html.H3("Gráfica 1"),
-                                    html.Img(src='https://picsum.photos/230', style={'height':'100%', 'width':'100%'})
+                                    html.H3("Palabras principales en textos positivos"),
+                                    dcc.Graph(figure = bar_words_good, id = 'bar_good_mw')
                                 ]
                             ),
-                            width=6
+                            #width=6
                         ),
                         dbc.Col(
                             html.Div(
@@ -227,56 +245,39 @@ def render_tab_content(active_tab):
                                     html.Img(src='https://picsum.photos/250', style={'height':'100%', 'width':'100%'})
                                 ]
                             ),
-                            width=6
+                            md = 8#width=6
                         ),
                     ]
                 ),
                 dbc.Row(
-                    dbc.Col(
-                        html.Div(
-                            [
-                                html.H3("Gráfica 3.1"),
-                                html.Img(src='https://picsum.photos/310', style={'height':'100%', 'width':'100%'})
-                            ]
+                    [
+                        dbc.Col(
+                            html.Div(
+                                [
+                                    html.H3("Palabras principales en textos negativos"),
+                                    dcc.Graph(figure = bar_words_bad, id = 'bar_bad_mw')
+                                ]
+                            ),
+                            #width=6
                         ),
-                        width=6
-                    ),
-                    align="center",
-                    justify="center",
-                ),
-                dbc.Row(
-                    dbc.Col(
-                        html.Div(
-                            [
-                                html.H3("Gráfica 3.2"),
-                                html.Img(src='https://picsum.photos/320', style={'height':'100%', 'width':'100%'})
-                            ]
+                        dbc.Col(
+                            html.Div(
+                                [
+                                    html.H3("Gráfica 2"),
+                                    html.Img(src='https://picsum.photos/250', style={'height':'100%', 'width':'100%'})
+                                ]
+                            ),
+                            md = 8
                         ),
-                        width=6
-                    ),
-                    align="center",
-                    justify="center",
-                ),
-                dbc.Row(
-                    dbc.Col(
-                        html.Div(
-                            [
-                                html.H3("Gráfica 3.3"),
-                                html.Img(src='https://picsum.photos/330', style={'height':'100%', 'width':'100%'})
-                            ]
-                        ),
-                        width=6
-                    ),
-                    align="center",
-                    justify="center",
-                ),
+                    ]
+                )
             ]
         )
         return page_2
 
-@app.callback(Output("output", "children"), [Input("input", "value")])
-def output_text(value):
-    return value
+#@app.callback(Output("output", "children"), [Input("input", "value")])
+#def output_text(value):
+#    return value
 # @app.callback(Output("store", "data"), [Input("button", "n_clicks")])
 # def generate_graphs(n):
 #     """
