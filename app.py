@@ -20,7 +20,7 @@ import numpy as np
 import plotly.graph_objs as go
 
 from lib.functions_dash import reviews_by_score, reviews_by_date, get_noise_words, get_common_words, main_ngrams
-from lib.functions_model import get_main_words, main_words
+from lib.functions_model import get_main_words, main_words, get_examples_tables
 
 ###==============================================CODIGO===========================================================
 df = pd.read_csv('Data/brazilian-ecommerce/olist_order_reviews_dataset.csv')
@@ -59,10 +59,15 @@ df_main_words = get_main_words(vectorizer,loaded_model)
 bar_words_good=main_words(df_main_words)
 bar_words_bad=main_words(df_main_words, sentiment = 0)
 
+df_pos_examples = get_examples_tables(df_or[df_or.review_sentiment == 1].iloc[0:100,:],
+                                      vectorizer,loaded_model)
+df_neq_examples = get_examples_tables(df_or[df_or.review_sentiment == 0].iloc[0:100,:],
+                                      vectorizer,loaded_model)
 
 ###============================================APLICACION=========================================================
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
+app.config['suppress_callback_exceptions'] = True
 
 app.layout = dbc.Container(
     [
@@ -199,9 +204,13 @@ def render_tab_content(active_tab):
                     [
                         dbc.Col(
                             html.Div(
-                                dbc.Input(id="input", placeholder="Ingrese el texto a clasificar...", type="text"),
+                                dbc.Input(id="input-on-submit", placeholder="Ingrese el texto a clasificar...", type="text"),
                             ),
-                            width=8
+                            width=6
+                        ),
+                        dbc.Col(
+                            dbc.Button('Submit', id='submit-val', color="primary", style={'width': '100%'}),
+                            width=2
                         ),
                         dbc.Col(
                             dbc.Card(
@@ -217,7 +226,7 @@ def render_tab_content(active_tab):
                             dbc.Card(
                                 dbc.CardBody([
                                     html.P("Probabilidad de clasificación", className="card-text"),
-                                    html.P(id="output", className="card-title",
+                                    html.P(id="pc-output", className="card-title",
                                           style={'font-size':'25px'}),
                                 ])
                             ),
@@ -241,8 +250,19 @@ def render_tab_content(active_tab):
                         dbc.Col(
                             html.Div(
                                 [
-                                    html.H3("Gráfica 2"),
-                                    html.Img(src='https://picsum.photos/250', style={'height':'100%', 'width':'100%'})
+                                    html.H3("Ejemplos comentarios positivos"),
+                                    dash_table.DataTable(id = 'table_top_cities',
+                                                        columns=[{"name": i, "id": i} for i in df_pos_examples.columns],
+                                                        data=df_pos_examples.to_dict('records'),
+                                                        page_size=10,
+                                                        style_cell={'whiteSpace': 'normal','height': 'auto'},
+                                                        style_table={
+                                                            'maxHeight': '50ex',
+                                                            'overflowY': 'scroll',
+                                                            'width': '100%',
+                                                            'minWidth': '100%',
+                                                        },
+                                                        )
                                 ]
                             ),
                             md = 8#width=6
@@ -263,8 +283,19 @@ def render_tab_content(active_tab):
                         dbc.Col(
                             html.Div(
                                 [
-                                    html.H3("Gráfica 2"),
-                                    html.Img(src='https://picsum.photos/250', style={'height':'100%', 'width':'100%'})
+                                    html.H3("Ejemplos comentarios negativos"),
+                                    dash_table.DataTable(id = 'table_top_cities',
+                                                        style_table={
+                                                            'maxHeight': '50ex',
+                                                            'overflowY': 'scroll',
+                                                            'width': '100%',
+                                                            'minWidth': '100%',
+                                                        }, 
+                                                        style_cell={'whiteSpace': 'normal','height': 'auto'},
+                                                        columns=[{"name": i, "id": i} for i in df_neq_examples.columns],
+                                                        data=df_neq_examples.to_dict('records'),
+                                                        page_size=10,
+                                                        )
                                 ]
                             ),
                             md = 8
@@ -275,33 +306,27 @@ def render_tab_content(active_tab):
         )
         return page_2
 
-#@app.callback(Output("output", "children"), [Input("input", "value")])
-#def output_text(value):
-#    return value
-# @app.callback(Output("store", "data"), [Input("button", "n_clicks")])
-# def generate_graphs(n):
-#     """
-#     This callback generates three simple graphs from random data.
-#     """
-#     if not n:
-#         # generate empty graphs when app loads
-#         return {k: go.Figure(data=[]) for k in ["page-1", "hist_1", "hist_2"]}
-
-#     # simulate expensive graph generation process
-#     time.sleep(2)
-
-#     # generate 100 multivariate normal samples
-#     data = np.random.multivariate_normal([0, 0], [[1, 0.5], [0.5, 1]], 100)
-
-#     scatter = go.Figure(
-#         data=[go.Scatter(x=data[:, 0], y=data[:, 1], mode="markers")]
-#     )
-#     hist_1 = go.Figure(data=[go.Histogram(x=data[:, 0])])
-#     hist_2 = go.Figure(data=[go.Histogram(x=data[:, 1])])
-
-#     # save figures in a dictionary for sending to the dcc.Store
-#     return {"page-1": scatter, "hist_1": hist_1, "hist_2": hist_2}
-
+@app.callback(
+    [
+        Output('sa-output', 'children'),
+        Output('pc-output', 'children'),
+    ],
+    [Input('submit-val', 'n_clicks')],
+    [dash.dependencies.State('input-on-submit', 'value')])
+def update_output(n_clicks, value):
+    if value is None:
+        return "None", "0"
+    else:
+        Text = vectorizer.transform([value])
+        
+        sentiment = loaded_model.predict(Text)
+        prob_sent = loaded_model.predict_proba(Text)
+        
+        if sentiment[0]: sentiment = 'Positivo'
+        else: sentiment = 'Negativo'
+            
+        prob_sent = '{:.2f}'.format(prob_sent[0][1])
+    return str(sentiment), prob_sent
 
 if __name__ == "__main__":
-    app.run_server(debug=True, port=8050)
+    app.run_server(debug=True, port=8050, dev_tools_ui=False,dev_tools_props_check=False)
